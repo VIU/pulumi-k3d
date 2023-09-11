@@ -1,10 +1,10 @@
-PROJECT_NAME := Pulumi Xyz Resource Provider
+PROJECT_NAME := Pulumi K3d Resource Provider
 
-PACK             := xyz
+PACK             := k3d
 PACKDIR          := sdk
-PROJECT          := github.com/pulumi/pulumi-xyz
-NODE_MODULE_NAME := @pulumi/xyz
-NUGET_PKG_NAME   := Pulumi.Xyz
+PROJECT          := github.com/VIU/pulumi-k3d
+NODE_MODULE_NAME := @viuweb/pulumi-k3d
+NUGET_PKG_NAME   := Dwoods.K3d
 
 PROVIDER        := pulumi-resource-${PACK}
 VERSION         ?= $(shell pulumictl get version)
@@ -47,6 +47,7 @@ nodejs_sdk::
 	rm -rf sdk/nodejs
 	pulumi package gen-sdk $(WORKING_DIR)/bin/$(PROVIDER) --language nodejs
 	cd ${PACKDIR}/nodejs/ && \
+		sed -i.bak 's#@pulumi/k3d#${NODE_MODULE_NAME}#' package.json && \
 		yarn install && \
 		yarn run tsc && \
 		cp -R scripts/ bin && \

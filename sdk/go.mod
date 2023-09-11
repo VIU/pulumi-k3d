@@ -1,4 +1,4 @@
-module github.com/pulumi/pulumi-xyz/sdk
+module github.com/VIU/pulumi-k3d/sdk
 
 go 1.21
 

@@ -1,5 +1,17 @@
-import * as xyz from "@pulumi/xyz";
+import * as k3d from "@viuweb/k3d";
+import * as pulumi from "@pulumi/pulumi";
 
-const random = new xyz.Random("my-random", { length: 24 });
+const clusterConfig = `apiVersion: k3d.io/v1alpha5
+kind: Simple
+servers: 1
+agents: 2
+`
 
-export const output = random.result;
+const cluster = new k3d.Cluster(
+    `my-cluster-${pulumi.getStack()}`,
+    {
+        config: clusterConfig
+    }
+)
+
+export const kubeConfig = cluster.kubeConfig

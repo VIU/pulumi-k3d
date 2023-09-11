@@ -1,39 +1,26 @@
-// Copyright 2016-2023, Pulumi Corporation.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package provider
 
 import (
-	"math/rand"
-	"time"
-
+	"github.com/acarl005/stripansi"
 	p "github.com/pulumi/pulumi-go-provider"
 	"github.com/pulumi/pulumi-go-provider/infer"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/diag"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
+	"os/exec"
 )
 
 // Version is initialized by the Go linker to contain the semver of this build.
 var Version string
 
-const Name string = "xyz"
+const Name string = "k3d"
 
 func Provider() p.Provider {
 	// We tell the provider what resources it needs to support.
 	// In this case, a single custom resource.
 	return infer.Provider(infer.Options{
 		Resources: []infer.InferredResource{
-			infer.Resource[Random, RandomArgs, RandomState](),
+			infer.Resource[*Cluster, ClusterArgs, ClusterState](),
 		},
 		ModuleMap: map[tokens.ModuleName]tokens.ModuleName{
 			"provider": "index",
@@ -51,41 +38,99 @@ func Provider() p.Provider {
 // - Delete: Custom logic when the resource is deleted.
 // - Annotate: Describe fields and set defaults for a resource.
 // - WireDependencies: Control how outputs and secrets flows through values.
-type Random struct{}
+type Cluster struct{}
 
-// Each resource has in input struct, defining what arguments it accepts.
-type RandomArgs struct {
-	// Fields projected into Pulumi must be public and hava a `pulumi:"..."` tag.
-	// The pulumi tag doesn't need to match the field name, but its generally a
-	// good idea.
-	Length int `pulumi:"length"`
+type ClusterArgs struct {
+	Name    string `pulumi:"name,optional"`
+	Version string `pulumi:"version,optional"`
+	Config  string `pulumi:"config,optional"`
 }
 
-// Each resource has a state, describing the fields that exist on the created resource.
-type RandomState struct {
-	// It is generally a good idea to embed args in outputs, but it isn't strictly necessary.
-	RandomArgs
-	// Here we define a required output called result.
-	Result string `pulumi:"result"`
+type ClusterState struct {
+	ClusterArgs
+	KubeConfig string `pulumi:"kubeConfig" provider:"secret"`
 }
 
-// All resources must implement Create at a minumum.
-func (Random) Create(ctx p.Context, name string, input RandomArgs, preview bool) (string, RandomState, error) {
-	state := RandomState{RandomArgs: input}
+func (*Cluster) Create(ctx p.Context, name string, input ClusterArgs, preview bool) (string, ClusterState, error) {
+	state := ClusterState{ClusterArgs: input}
 	if preview {
 		return name, state, nil
 	}
-	state.Result = makeRandom(input.Length)
+
+	if &input.Config == nil || input.Config == "" {
+		input.Config = defaultConfig(name)
+	}
+
+	// Pass the name and version to k3d to create a cluster. Also pass the config via stdin.
+	cmd := exec.Command("k3d", "cluster", "create", name, "--config", "-")
+
+	// Debug the command.
+	//fullCmd := cmd.String()
+	//ctx.Logf(diag.Warning, "command: %q", fullCmd)
+
+	// Get a pipe to stdin.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return name, state, err
+	}
+
+	// Write the config to stdin.
+	go func() {
+		defer stdin.Close()
+		_, err = stdin.Write([]byte(input.Config))
+		if err != nil {
+			return
+		}
+	}()
+
+	// Run the command.
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		ctx.Logf(diag.Error, "Error creating k3d cluster: %q", stripansi.Strip(string(output)))
+		return name, state, err
+	}
+
+	// Get the kubeconfig for the cluster and set it as an output.
+	kc, err := exec.Command("k3d", "kubeconfig", "get", name).Output()
+	if err != nil {
+		return name, state, err
+	}
+
+	state.KubeConfig = string(kc)
+
 	return name, state, nil
 }
 
-func makeRandom(length int) string {
-	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	charset := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+func (*Cluster) Delete(ctx p.Context, id string, props ClusterState) error {
+	cmd := exec.Command("k3d", "cluster", "delete", props.Name)
 
-	result := make([]rune, length)
-	for i := range result {
-		result[i] = charset[seededRand.Intn(len(charset))]
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		ctx.Logf(diag.Error, "Error deleting k3d cluster: %q", stripansi.Strip(string(output)))
+		return err
 	}
-	return string(result)
+
+	return err
+}
+
+func (*Cluster) Check(ctx p.Context, name string, oldInputs, newInputs resource.PropertyMap) (ClusterArgs, []p.CheckFailure, error) {
+	// Set default values.
+	if _, ok := newInputs["name"]; !ok {
+		newInputs["name"] = resource.NewStringProperty(name)
+	}
+	if _, ok := newInputs["config"]; !ok {
+		newInputs["config"] = resource.NewStringProperty(defaultConfig(name))
+	}
+	return infer.DefaultCheck[ClusterArgs](newInputs)
+}
+
+// Create a default config for the cluster.  Cluster name default to the resource name.
+func defaultConfig(name string) string {
+	return `apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: ` + name + `
+servers: 1
+agents: 2
+`
 }
