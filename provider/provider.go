@@ -131,6 +131,6 @@ kind: Simple
 metadata:
   name: ` + name + `
 servers: 1
-agents: 2
+agents: 1
 `
 }
