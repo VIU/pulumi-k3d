@@ -59,7 +59,7 @@ jobs:
 #          role-external-id: upload-pulumi-release
 #          role-to-assume: ${{ secrets.AWS_UPLOAD_ROLE_ARN }}
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v3
         with:
           args: -p 1 release --rm-dist --timeout 90m0s
           version: latest

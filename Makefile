@@ -50,7 +50,7 @@ nodejs_sdk::
 		sed -i.bak 's#@pulumi/k3d#${NODE_MODULE_NAME}#' package.json && \
 		yarn install && \
 		yarn run tsc && \
-		cp -R scripts/ bin && \
+		#cp -R scripts/* bin && \
 		cp ../../README.md ../../LICENSE package.json yarn.lock bin/ && \
 		sed -i.bak 's/$${VERSION}/$(VERSION)/g' bin/package.json && \
 		rm ./bin/package.json.bak
